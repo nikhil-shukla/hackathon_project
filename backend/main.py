@@ -84,7 +84,7 @@ secure_headers = Secure.with_default_headers()
 @app.middleware("http")
 async def set_secure_headers(request: Request, call_next):
     response = await call_next(request)
-    secure_headers.framework.fastapi(response)
+    secure_headers.set_headers(response)
     # Custom Content Security Policy
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
@@ -259,7 +259,7 @@ async def process_intent(
     try:
         # Multimodal call
         response = client.models.generate_content(
-            model="gemini-2.5-pro",
+            model="gemini-2.0-flash",
             contents=prompt_parts,
             config={
                 "system_instruction": schema_instruction,

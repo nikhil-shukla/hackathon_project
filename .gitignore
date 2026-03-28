@@ -1,2 +1,42 @@
-# pitch
+# Environment / Secrets
+.env
+.env.*
+!.env.example
+!.env.production
+.python-version
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# Node.js (Frontend)
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.log
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/pnpm-debug.log*
+
+# Python (Backend)
+backend/__pycache__/
+backend/*.pyc
+backend/venv/
+backend/.venv/
+backend/.pytest_cache/
+backend/.coverage
+backend/.coverage.*
+backend/htmlcov/
+backend/dist/
+backend/build/
+backend/*.egg-info/
+
+# Misc
 hackathon_pitch.md
