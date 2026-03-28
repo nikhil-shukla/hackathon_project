@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import './App.css';
-import { Mic, Image as ImageIcon, Send, Loader2, AlertTriangle, MapPin, Activity, Phone, Info, ShieldCheck, X } from 'lucide-react';
+import { Mic, Image as ImageIcon, Send, Loader2, AlertTriangle, MapPin, Activity, Phone, Info, ShieldCheck, X, User, LogOut, Languages } from 'lucide-react';
+import { auth, signInWithGoogle } from './firebase';
+import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
+import { GoogleMap } from './components/GoogleMap';
 
 interface Action {
   action_type: string;
@@ -65,6 +68,26 @@ function App() {
   const [statusMsg, setStatusMsg] = useState<string>('');   // for screen readers
   const [isHighContrast, setIsHighContrast] = useState(false);
   const [isSpeechEnabled, setIsSpeechEnabled] = useState(true);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [targetLang, setTargetLang] = useState<string>('en'); // default to English
+
+  const languages = [
+    { code: 'en', name: 'English' },
+    { code: 'es', name: 'Español' },
+    { code: 'fr', name: 'Français' },
+    { code: 'de', name: 'Deutsch' },
+    { code: 'it', name: 'Italiano' },
+    { code: 'pt', name: 'Português' },
+    { code: 'zh', name: '中文' },
+    { code: 'ja', name: '日本語' },
+    { code: 'hi', name: 'हिन्दी' },
+    { code: 'ar', name: 'العربية' },
+  ];
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => setUser(u));
+    return () => unsub();
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
@@ -166,6 +189,7 @@ function App() {
           text_input: textInput || undefined,
           image_base64: imageBase64 || undefined,
           location_data: location,
+          target_language: targetLang !== 'en' ? targetLang : undefined,
         }),
       });
 
@@ -227,14 +251,7 @@ function App() {
     return `https://www.google.com/maps/dir/?api=1&destination=${dest}${origin}&travelmode=driving`;
   };
 
-  const buildEmbedMapsUrl = () => {
-    if (!location) return null;
-    const key = import.meta.env.VITE_MAPS_API_KEY || '';
-    if (!key) return null;
-    return `https://www.google.com/maps/embed/v1/view?key=${key}&center=${location.lat},${location.lng}&zoom=14`;
-  };
-
-  const embedMapsUrl = buildEmbedMapsUrl();
+  const mapsApiKey = import.meta.env.VITE_MAPS_API_KEY || '';
 
   // ── Keyboard accessibility (High Contrast) ─────────────────────────────
   useEffect(() => {
@@ -265,6 +282,41 @@ function App() {
 
       <header role="banner">
         <div className="assistive-controls">
+          <div className="language-selector-wrapper">
+            <Languages size={18} className="lang-icon" aria-hidden="true" />
+            <select 
+              value={targetLang} 
+              onChange={(e) => setTargetLang(e.target.value)}
+              aria-label="Target language for results"
+              className="lang-select"
+            >
+              {languages.map((l) => (
+                <option key={l.code} value={l.code}>{l.name}</option>
+              ))}
+            </select>
+          </div>
+          {user ? (
+            <div className="user-profile">
+              <img src={user.photoURL || ''} alt="" className="user-avatar" />
+              <button 
+                className="btn-icon-small" 
+                onClick={() => signOut(auth)} 
+                title={`Logout (${user.displayName})`}
+                aria-label="Logout"
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
+          ) : (
+            <button 
+              className="btn btn-secondary btn-icon-small" 
+              onClick={signInWithGoogle}
+              aria-label="Sign in with Google"
+              title="Sign in with Google"
+            >
+              <User size={18} />
+            </button>
+          )}
           <button 
             className={`btn-icon-small ${isSpeechEnabled ? 'active' : ''}`}
             onClick={() => setIsSpeechEnabled(!isSpeechEnabled)}
@@ -461,23 +513,13 @@ function App() {
             </div>
           )}
 
-          {/* Google Maps embed (if location + API key available) */}
-          {embedMapsUrl && (
-            <div className="maps-embed-wrapper" aria-label="Your current location on Google Maps">
-              <h3 style={{ fontSize: '1rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
-                <MapPin size={16} aria-hidden="true" /> Your Location
+          {/* Interactive Google Map SDK (if API key available) */}
+          {location && mapsApiKey && (
+            <div className="maps-sdk-wrapper" aria-label="Interactive map of incident location">
+              <h3 style={{ fontSize: '1rem', color: 'var(--text-secondary)', marginBottom: 12 }}>
+                <MapPin size={16} aria-hidden="true" /> Interactive Incident Map
               </h3>
-              <iframe
-                title="Google Maps – current location"
-                src={embedMapsUrl}
-                width="100%"
-                height="220"
-                style={{ border: 0, borderRadius: 12 }}
-                allowFullScreen
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-                aria-label="Google Maps showing your current location"
-              />
+              <GoogleMap lat={location.lat} lng={location.lng} />
             </div>
           )}
 

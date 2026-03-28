@@ -333,7 +333,64 @@ textarea:focus {
   right: 20px;
   display: flex;
   gap: 12px;
-  z-index: 100;
+  align-items: center;
+}
+
+.language-selector-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.lang-icon {
+  color: var(--accent-glow);
+  opacity: 0.8;
+}
+
+.lang-select {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 0.8rem;
+  cursor: pointer;
+  outline: none;
+  padding: 2px 0;
+}
+
+.lang-select option {
+  background: #1e1e2d;
+  color: #fff;
+}
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px 8px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.user-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--accent-glow);
+}
+
+.maps-sdk-wrapper {
+  margin-top: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 20px;
+}
+
+.map-container-sdk {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 .assistive-controls .btn-icon-small.active {
   color: var(--accent-glow);

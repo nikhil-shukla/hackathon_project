@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field, field_validator
 import base64
@@ -15,9 +14,11 @@ import json
 import time
 import hashlib
 import logging
-import firebase_admin
+import firebase_admin  # type: ignore
 from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
+from google.cloud import bigquery, storage, logging as cloud_logging, translate_v2 as translate  # type: ignore[attr-defined]
+from google.api_core.exceptions import GoogleAPICallError
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -28,20 +29,55 @@ logger = logging.getLogger("aegis")
 
 load_dotenv()
 
-# ── Firebase init (optional – graceful if creds missing) ─────────────────────
+# ── Google Cloud Services init (Firestore, BigQuery, Storage, Logging) ────
 _db: Any = None
+_bq_client: Any = None
+_storage_client: Any = None
+_translate_client: Any = None
+_gcs_bucket_name = os.getenv("GCS_BUCKET_NAME")
+
 try:
     cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     if cred_path and os.path.exists(cred_path):
+        # 1. Firebase Firestore
         if not firebase_admin._apps:
             cred = credentials.Certificate(cred_path)
             firebase_admin.initialize_app(cred)
         _db = firestore.client()
         logger.info("Firebase Firestore connected ✓")
+
+        # 2. BigQuery
+        try:
+            _bq_client = bigquery.Client()
+            logger.info("Google Cloud BigQuery connected ✓")
+        except Exception as bq_exc:
+            logger.warning("BigQuery init failed: %s", bq_exc)
+
+        # 3. Cloud Storage
+        try:
+            _storage_client = storage.Client()
+            logger.info("Google Cloud Storage connected ✓")
+        except Exception as gcs_exc:
+            logger.warning("Cloud Storage init failed: %s", gcs_exc)
+
+        # 4. Cloud Translate
+        try:
+            _translate_client = translate.Client()
+            logger.info("Google Cloud Translate connected ✓")
+        except Exception as tr_exc:
+            logger.warning("Cloud Translate init failed: %s", tr_exc)
+
+        # 5. Cloud Logging (Native integration)
+        try:
+            client_logging = cloud_logging.Client()
+            client_logging.setup_logging()
+            logger.info("Google Cloud Logging integrated ✓")
+        except Exception as log_exc:
+            logger.warning("Cloud Logging init failed: %s", log_exc)
     else:
-        logger.warning("GOOGLE_APPLICATION_CREDENTIALS not set – Firestore logging disabled")
+        logger.warning("GOOGLE_APPLICATION_CREDENTIALS not set – Cloud data services disabled")
 except Exception as exc:
-    logger.warning("Firebase init failed: %s", exc)
+    logger.warning("Google Cloud Services setup failed: %s", exc)
 
 
 def get_db() -> Any:
@@ -60,13 +96,17 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
 # ── CORS (restrict to known origins) ─────────────────────────────────────────
-ALLOWED_ORIGINS = [o.strip() for o in os.getenv(
-    "ALLOWED_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173,https://aegis-ai.web.app"
-).split(",") if o.strip()]
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,https://aegis-ai.web.app",
+    ).split(",")
+    if o.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -80,6 +120,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # ── Security Headers ──────────────────────────────────────────────────────────
 secure_headers = Secure.with_default_headers()
+
 
 @app.middleware("http")
 async def set_secure_headers(request: Request, call_next):
@@ -96,6 +137,7 @@ async def set_secure_headers(request: Request, call_next):
         "frame-src 'self' https://www.google.com;"
     )
     return response
+
 
 # ── In-memory response cache ──────────────────────────────────────────────────
 _cache: Dict[str, Dict[str, Any]] = {}
@@ -127,13 +169,14 @@ client = genai.Client(api_key=_gemini_api_key)
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
 
+
 class Action(BaseModel):
     action_type: str = Field(..., min_length=1, max_length=100)
     parameters: Dict[str, Any] = Field(default_factory=dict)
 
 
 class IntentResponse(BaseModel):
-    urgency_level: str = Field(..., pattern="^(Low|Medium|High|Critical)$")
+    urgency_level: str = Field(..., description="Level of urgency (e.g., Low, Medium, High, Critical)")
     summary_of_situation: str
     detected_entities: Dict[str, Any] = Field(default_factory=dict)
     actions_to_take: List[Action] = Field(default_factory=list)
@@ -143,6 +186,7 @@ class ProcessIntentRequest(BaseModel):
     text_input: Optional[str] = Field(None, max_length=4000)
     image_base64: Optional[str] = Field(None, max_length=5_000_000)  # ~3.7 MB raw image
     location_data: Optional[Dict[str, float]] = None
+    target_language: Optional[str] = Field(None, pattern="^[a-zA-Z]{2}$")  # ISO code like 'es', 'fr'
 
     @field_validator("text_input")
     @classmethod
@@ -172,24 +216,65 @@ Rules:
 """
 
 
-# ── Firestore logging helper ──────────────────────────────────────────────────
-async def _log_to_firestore(db: Any, request_payload: Dict, response_payload: Dict, latency_ms: float) -> None:
-    if db is None:
-        return
-    try:
-        doc = {
-            "request": request_payload,
-            "response": response_payload,
-            "latency_ms": latency_ms,
-            "timestamp": firestore.SERVER_TIMESTAMP,
-        }
-        db.collection("aegis_logs").add(doc)
-        logger.info("Logged intent to Firestore (%.0f ms latency)", latency_ms)
-    except Exception as exc:
-        logger.warning("Firestore logging failed: %s", exc)
+# ── Data logging helper (Firestore & BigQuery) ───────────────────────────────
+async def _log_data(
+    db: Any,
+    bq_client: Any,
+    request_payload: Dict,
+    response_payload: Dict,
+    latency_ms: float,
+) -> None:
+    # Firestore
+    if db is not None:
+        try:
+            doc = {
+                "request": request_payload,
+                "response": response_payload,
+                "latency_ms": latency_ms,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+            }
+            db.collection("aegis_logs").add(doc)
+            logger.info("Logged intent to Firestore (%.0f ms latency)", latency_ms)
+        except Exception as exc:
+            logger.warning("Firestore logging failed: %s", exc)
+
+    # BigQuery structure
+    if bq_client is not None:
+        try:
+            # We assume a dataset 'aegis_ai' and table 'inference_logs' exists.
+            # In a real setup, we would ensure this table exists or use insert_rows_json
+            table_id = f"{bq_client.project}.aegis_ai.inference_logs"
+            rows_to_insert = [
+                {
+                    "request_text": (
+                        request_payload.get("text", "")[:1000]
+                        if request_payload.get("text")
+                        else None
+                    ),
+                    "has_image": request_payload.get("has_image", False),
+                    "urgency_level": response_payload.get("urgency_level", "Unknown"),
+                    "latency_ms": latency_ms,
+                    "timestamp": time.time(),
+                }
+            ]
+            # Fire-and-forget for this tutorial-level app (could also log to a file for Fluentd)
+            errors = bq_client.insert_rows_json(table_id, rows_to_insert)
+            if not errors:
+                logger.info("Logged intent metrics to BigQuery ✓")
+            else:
+                logger.warning("BigQuery insertion errors: %s", errors)
+        except GoogleAPICallError as api_exc:
+            logger.warning(
+                "BigQuery API call failed (Table might not exist): %s", api_exc
+            )
+        except Exception as exc:
+            logger.warning("BigQuery logging failed: %s", exc)
+
+    # BigQuery structure refined for Cloud Trace/Logging context if needed here
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @app.post(
     "/api/v1/process-intent",
@@ -211,19 +296,21 @@ async def process_intent(
     - **location_data**: `{"lat": float, "lng": float}` (optional)
     """
     if not req.text_input and not req.image_base64:
-        raise HTTPException(status_code=400, detail="Must provide text_input or image_base64")
+        raise HTTPException(
+            status_code=400, detail="Must provide text_input or image_base64"
+        )
 
     # Build prompt and contents for Gemini
     # Gemini 2.x supports list of parts: strings and bytes (for images)
     prompt_parts: List[Any] = []
-    
+
     # Contextual string prompt
     text_prompt = ""
     if req.location_data:
         text_prompt += f"User Location (lat/lng): {req.location_data}\n"
     if req.text_input:
         text_prompt += f"Situation Description: {req.text_input}\n"
-    
+
     prompt_parts.append(text_prompt)
 
     # Attach image if provided
@@ -234,10 +321,25 @@ async def process_intent(
                 b64_data = req.image_base64.split(",")[1]
             else:
                 b64_data = req.image_base64
-                
+
             img_bytes = base64.b64decode(b64_data)
+            
+            # ── [NEW] Google Cloud Storage Integration ─────────────────────
+            # Save incident image to GCS if bucket is configured
+            if _storage_client and _gcs_bucket_name:
+                try:
+                    bucket = _storage_client.bucket(_gcs_bucket_name)
+                    blob_name = f"incidents/{int(time.time())}_{hashlib.md5(img_bytes).hexdigest()[:8]}.jpg"
+                    blob = bucket.blob(blob_name)
+                    blob.upload_from_string(img_bytes, content_type="image/jpeg")
+                    logger.info("Incident image persisted to GCS: %s", blob_name)
+                except Exception as gcs_err:
+                    logger.warning("Failed to persist to GCS: %s", gcs_err)
+
             # Using genai parts schema
-            prompt_parts.append(genai.types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
+            prompt_parts.append(
+                genai.types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
+            )
             logger.info("Image data attached to Gemini request")
         except Exception as e:
             logger.error("Failed to decode image: %s", e)
@@ -246,8 +348,10 @@ async def process_intent(
     # Cache check (on text part mostly as hashing binary is expensive but possible)
     cache_key = _cache_key(text_prompt, req.location_data)
     cached = _cache_get(cache_key)
-    if cached and not req.image_base64: # Don't cache image results if you want fresh vision context
-        return cached
+    if (
+        cached is not None and not req.image_base64
+    ):  # Don't cache image results if you want fresh vision context
+        return IntentResponse(**cached)
 
     schema_instruction = (
         f"{SYSTEM_INSTRUCTION}\n\n"
@@ -273,24 +377,51 @@ async def process_intent(
         raise HTTPException(status_code=502, detail=f"AI service error: {str(exc)}")
 
     try:
-        parsed: Dict = json.loads(response.text)
+        response_text = str(response.text) if response.text else ""
+        parsed: Dict = json.loads(response_text)
         validated = IntentResponse(**parsed)
     except (json.JSONDecodeError, Exception) as exc:
-        logger.error("Response validation failed: %s | raw: %s", exc, response.text[:200])
-        raise HTTPException(status_code=500, detail="Invalid response format from AI model")
+        logger.error(
+            "Response validation failed: %s | raw: %s", exc, str(response.text)[:200] if response.text else "None"
+        )
+        raise HTTPException(
+            status_code=500, detail="Invalid response format from AI model"
+        )
 
     result_dict = validated.model_dump()
     _cache_set(cache_key, result_dict)
 
-    # Log to Firestore asynchronously (best-effort)
-    await _log_to_firestore(
+    # ── [NEW] Google Cloud Translate Integration ────────────────────
+    # If a target language is requested, translate the key fields
+    if req.target_language and _translate_client:
+        try:
+            lang = req.target_language
+            fields_to_translate = ["urgency_level", "summary_of_situation"]
+            
+            # Map original names to translated names for easy replacement
+            for field in fields_to_translate:
+                res = _translate_client.translate(result_dict[field], target_language=lang)
+                result_dict[field] = res["translatedText"]
+                
+            # Optionally translate actions (deep mapping)
+            for action in result_dict.get("actions_to_take", []):
+                # Translate action type or descriptions if they existed (not in this schema yet)
+                pass
+                
+            logger.info("Results translated to %s", lang)
+        except Exception as tr_err:
+            logger.warning("Translation failed: %s", tr_err)
+
+    # Log to Data Stores asynchronously (best-effort)
+    await _log_data(
         db,
+        _bq_client,
         request_payload={"text": req.text_input, "has_image": bool(req.image_base64)},
         response_payload=result_dict,
         latency_ms=latency_ms,
     )
 
-    return validated
+    return IntentResponse(**result_dict)
 
 
 @app.get("/health", summary="Health check", tags=["System"])
