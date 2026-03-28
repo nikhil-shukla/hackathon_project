@@ -13,6 +13,7 @@ firebase_admin==7.3.0
 google-api-core
 google-auth
 google-cloud-core
+google-cloud-bigquery
 google-cloud-firestore
 google-cloud-logging
 google-cloud-storage

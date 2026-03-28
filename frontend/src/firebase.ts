@@ -12,9 +12,24 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
-export const db = getFirestore(app);
+let app;
+let auth: any;
+let googleProvider: any;
+let db: any;
 
-export const signInWithGoogle = () => signInWithPopup(auth, googleProvider);
+try {
+  console.info('firebase.ts: initializng Firebase config...', {
+    apiKey: firebaseConfig.apiKey ? 'PRESENT' : 'MISSING',
+    projectId: firebaseConfig.projectId ? 'PRESENT' : 'MISSING'
+  });
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  googleProvider = new GoogleAuthProvider();
+  db = getFirestore(app);
+  console.info('firebase.ts: Firebase connected ✓');
+} catch (err) {
+  console.error('CRITICAL: Firebase initialization failed:', err);
+}
+
+export { auth, googleProvider, db };
+export const signInWithGoogle = () => (auth ? signInWithPopup(auth, googleProvider) : Promise.reject('Firebase not initialized'));

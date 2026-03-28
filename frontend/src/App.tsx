@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import './App.css';
 import { Mic, Image as ImageIcon, Send, Loader2, AlertTriangle, MapPin, Activity, Phone, Info, ShieldCheck, X, User, LogOut, Languages } from 'lucide-react';
 import { auth, signInWithGoogle } from './firebase';
-import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
+import { onAuthStateChanged, signOut, type User as FirebaseUser } from 'firebase/auth';
 import { GoogleMap } from './components/GoogleMap';
 
 interface Action {
@@ -57,6 +57,7 @@ const SpeechRecognitionAPI: ISpeechRecognitionConstructor | undefined =
     : undefined;
 
 function App() {
+  console.info('App: component rendering...');
   const [textInput, setTextInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
