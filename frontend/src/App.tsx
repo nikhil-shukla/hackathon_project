@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import './App.css';
 import { Mic, Image as ImageIcon, Send, Loader2, AlertTriangle, MapPin, Activity, Phone, Info } from 'lucide-react';
 
