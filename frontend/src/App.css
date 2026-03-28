@@ -1,3 +1,34 @@
+/* ── Accessibility utilities ───────────────────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--accent-glow);
+  color: #0b0c10;
+  padding: 8px 16px;
+  z-index: 9999;
+  font-weight: 700;
+  border-radius: 0 0 8px 0;
+  text-decoration: none;
+  transition: top 0.2s;
+}
+.skip-link:focus {
+  top: 0;
+}
+
+/* ── Layout ───────────────────────────────────────────────────── */
 .app-container {
   display: flex;
   flex-direction: column;
@@ -18,6 +49,7 @@ header {
   font-weight: 700;
   background: linear-gradient(to right, #ffffff, var(--accent-glow));
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   margin-bottom: 8px;
 }
@@ -165,4 +197,131 @@ textarea:focus {
 
 .hidden-input {
   display: none;
+}
+
+/* ── Logo / header extras ─────────────────────────────────────── */
+.logo-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.location-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  background: rgba(102, 252, 241, 0.08);
+  border: 1px solid rgba(102, 252, 241, 0.2);
+  border-radius: 20px;
+  padding: 4px 10px;
+  margin-top: 8px;
+}
+
+/* ── Input hint ───────────────────────────────────────────────── */
+.input-hint {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  margin: 0;
+}
+.input-hint kbd {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: monospace;
+  font-size: 0.76rem;
+}
+
+/* ── Image preview ────────────────────────────────────────────── */
+.image-preview-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.remove-img {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(0,0,0,0.6);
+  border: none;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #fff;
+  padding: 0;
+}
+.remove-img:hover {
+  background: rgba(255,75,75,0.8);
+}
+
+/* ── Error banner ─────────────────────────────────────────────── */
+.error-banner {
+  width: 100%;
+  max-width: 1000px;
+  background: rgba(255, 75, 75, 0.15);
+  border: 1px solid rgba(255, 75, 75, 0.4);
+  border-radius: 12px;
+  padding: 14px 20px;
+  color: #ff6b6b;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.95rem;
+}
+.error-banner button {
+  margin-left: auto;
+}
+
+/* ── Results header ───────────────────────────────────────────── */
+.results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ── Google Maps embed ─────────────────────────────────────────── */
+.maps-embed-wrapper {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(102, 252, 241, 0.2);
+}
+
+/* ── Param row (dl/dt/dd) ─────────────────────────────────────── */
+.param-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Small icon button ────────────────────────────────────────── */
+.btn-icon-small {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  transition: background 0.2s;
+}
+.btn-icon-small:hover {
+  background: rgba(255,255,255,0.1);
+}
+
+/* Remove default list styling from entity & action lists ──────── */
+.entities-grid, .actions-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
 }
