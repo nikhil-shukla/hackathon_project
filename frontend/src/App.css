@@ -325,3 +325,60 @@ textarea:focus {
   padding: 0;
   margin: 0;
 }
+
+/* ── Assistive Controls ────────────────────────────────────────── */
+.assistive-controls {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  gap: 12px;
+  z-index: 100;
+}
+.assistive-controls .btn-icon-small.active {
+  color: var(--accent-glow);
+  background: rgba(102, 252, 241, 0.2);
+}
+
+/* ── High Contrast Mode Overrides ──────────────────────────────── */
+.high-contrast {
+  --bg-color: #000;
+  --panel-bg: #000;
+  --text-primary: #fff;
+  --text-secondary: #fff;
+  --accent-glow: #ffff00; /* High vis yellow */
+}
+
+.high-contrast .glass {
+  background: #000;
+  border: 3px solid #ffff00;
+  box-shadow: none;
+}
+
+.high-contrast .btn-primary {
+  background: #ffff00;
+  color: #000;
+  border: 2px solid #000;
+}
+
+.high-contrast textarea {
+  border: 2px solid #ffff00;
+  background: #000;
+}
+
+.high-contrast .urgency-badge {
+  background: #fff !important;
+  color: #000 !important;
+  border: 2px solid #000 !important;
+}
+
+/* ── Reduced Motion Support ───────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

@@ -1,7 +1,10 @@
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field, field_validator
+import base64
+from secure import Secure
 from typing import List, Optional, Dict, Any
 from google import genai
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -72,6 +75,27 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Authorization"],
 )
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# ── Security Headers ──────────────────────────────────────────────────────────
+secure_headers = Secure.with_default_headers()
+
+@app.middleware("http")
+async def set_secure_headers(request: Request, call_next):
+    response = await call_next(request)
+    secure_headers.framework.fastapi(response)
+    # Custom Content Security Policy
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self' http://127.0.0.1:8000; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "frame-src 'self' https://www.google.com;"
+    )
+    return response
 
 # ── In-memory response cache ──────────────────────────────────────────────────
 _cache: Dict[str, Dict[str, Any]] = {}
@@ -189,21 +213,40 @@ async def process_intent(
     if not req.text_input and not req.image_base64:
         raise HTTPException(status_code=400, detail="Must provide text_input or image_base64")
 
-    # Build prompt
-    prompt_parts: List[str] = []
+    # Build prompt and contents for Gemini
+    # Gemini 2.x supports list of parts: strings and bytes (for images)
+    prompt_parts: List[Any] = []
+    
+    # Contextual string prompt
+    text_prompt = ""
     if req.location_data:
-        prompt_parts.append(f"User Location (lat/lng): {req.location_data}")
+        text_prompt += f"User Location (lat/lng): {req.location_data}\n"
     if req.text_input:
-        prompt_parts.append(f"Situation Description: {req.text_input}")
+        text_prompt += f"Situation Description: {req.text_input}\n"
+    
+    prompt_parts.append(text_prompt)
+
+    # Attach image if provided
     if req.image_base64:
-        prompt_parts.append("(Image data is attached.)")
+        try:
+            # Handle possible prefix like 'data:image/png;base64,' if they sent it
+            if "," in req.image_base64:
+                b64_data = req.image_base64.split(",")[1]
+            else:
+                b64_data = req.image_base64
+                
+            img_bytes = base64.b64decode(b64_data)
+            # Using genai parts schema
+            prompt_parts.append(genai.types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
+            logger.info("Image data attached to Gemini request")
+        except Exception as e:
+            logger.error("Failed to decode image: %s", e)
+            raise HTTPException(status_code=400, detail="Invalid image encoding")
 
-    prompt = "\n".join(prompt_parts)
-
-    # Cache check
-    cache_key = _cache_key(prompt, req.location_data)
+    # Cache check (on text part mostly as hashing binary is expensive but possible)
+    cache_key = _cache_key(text_prompt, req.location_data)
     cached = _cache_get(cache_key)
-    if cached:
+    if cached and not req.image_base64: # Don't cache image results if you want fresh vision context
         return cached
 
     schema_instruction = (
@@ -214,9 +257,10 @@ async def process_intent(
 
     t0 = time.perf_counter()
     try:
+        # Multimodal call
         response = client.models.generate_content(
             model="gemini-2.5-pro",
-            contents=prompt,
+            contents=prompt_parts,
             config={
                 "system_instruction": schema_instruction,
                 "response_mime_type": "application/json",

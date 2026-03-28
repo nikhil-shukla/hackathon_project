@@ -63,6 +63,8 @@ function App() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string>('');   // for screen readers
+  const [isHighContrast, setIsHighContrast] = useState(false);
+  const [isSpeechEnabled, setIsSpeechEnabled] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
@@ -175,6 +177,14 @@ function App() {
       const data: IntentResponse = await res.json();
       setResponse(data);
       setStatusMsg(`Analysis complete. Urgency: ${data.urgency_level}.`);
+
+      // ── Voice synthesis for critical context ─────────────────────────────
+      if (isSpeechEnabled && window.speechSynthesis) {
+        const textToSpeak = `${data.urgency_level} alert. ${data.summary_of_situation}. Please check recommended actions.`;
+        const utterance = new SpeechSynthesisUtterance(textToSpeak);
+        utterance.rate = 0.9;
+        window.speechSynthesis.speak(utterance);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       setError(`Failed to process intent: ${msg}`);
@@ -226,9 +236,20 @@ function App() {
 
   const embedMapsUrl = buildEmbedMapsUrl();
 
+  // ── Keyboard accessibility (High Contrast) ─────────────────────────────
+  useEffect(() => {
+    const handleToggleHC = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'H') {
+        setIsHighContrast(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleToggleHC);
+    return () => window.removeEventListener('keydown', handleToggleHC);
+  }, []);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="app-container">
+    <div className={`app-container ${isHighContrast ? 'high-contrast' : ''}`}>
       {/* Accessible live region for screen reader announcements */}
       <div
         role="status"
@@ -243,6 +264,25 @@ function App() {
       <a href="#main-input" className="skip-link">Skip to main content</a>
 
       <header role="banner">
+        <div className="assistive-controls">
+          <button 
+            className={`btn-icon-small ${isSpeechEnabled ? 'active' : ''}`}
+            onClick={() => setIsSpeechEnabled(!isSpeechEnabled)}
+            aria-label={isSpeechEnabled ? 'Disable Voice Feedback' : 'Enable Voice Feedback'}
+            aria-pressed={isSpeechEnabled}
+          >
+            {isSpeechEnabled ? <Activity size={18} /> : <Activity size={18} style={{ opacity: 0.4 }} />}
+          </button>
+          <button 
+            className={`btn-icon-small ${isHighContrast ? 'active' : ''}`}
+            onClick={() => setIsHighContrast(!isHighContrast)}
+            aria-label={isHighContrast ? 'Disable High Contrast' : 'Enable High Contrast'}
+            aria-pressed={isHighContrast}
+            title="Toggle High Contrast (Ctrl+Shift+H)"
+          >
+            <ShieldCheck size={18} />
+          </button>
+        </div>
         <div className="logo-row" aria-hidden="true">
           <ShieldCheck size={40} color="var(--accent-glow)" strokeWidth={1.5} />
         </div>
